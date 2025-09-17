@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1052483396320",
+    "project_id": "voicetosound",
+    "storage_bucket": "voicetosound.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1052483396320:android:f085d92e01eb1ddea92685",
+        "android_client_info": {
+          "package_name": "com.example.soundtotext"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBGJxGyrpVqOAkxzOK7ga4ny-4lRA6k31k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
