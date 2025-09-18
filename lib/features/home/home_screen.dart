@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:soundtotext/features/auth/service/auth_service.dart';
+import 'package:soundtotext/features/home/helper/suggest_words_helper.dart';
 import 'package:soundtotext/features/home/listen_screen.dart';
 import 'package:soundtotext/features/home/message_confirmation_screen.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -22,12 +23,60 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _messageController = TextEditingController();
   String _lastWords = '';
   final FlutterTts _flutterTts = FlutterTts();
+  List<String> _suggestions = [];
+  bool _showSuggestions = false;
+  
+  // Default quick messages
+  final List<String> _defaultMessages = [
+    'I need some help',
+    'Can you get me a chair?',
+    'Please call my caregiver',
+  ];
 
   @override
   void initState() {
     super.initState();
     initSpeech();
     _initTts();
+    _messageController.addListener(_onTextChanged);
+    
+    // Initialize with default messages
+    _suggestions = _defaultMessages;
+    _showSuggestions = true;
+  }
+
+  void _onTextChanged() {
+    final text = _messageController.text.toLowerCase().trim();
+    
+    List<String> newSuggestions = [];
+    
+    if (text.isEmpty) {
+      // Show default messages when text field is empty
+      newSuggestions = _defaultMessages;
+    } else {
+      // Find suggestions based on the text input
+      for (String key in suggestionMap.keys) {
+        if (key.startsWith(text) || text.contains(key)) {
+          newSuggestions.addAll(suggestionMap[key]!);
+        }
+      }
+      
+      // Remove duplicates and limit to 3 suggestions
+      newSuggestions = newSuggestions.toSet().toList();
+      if (newSuggestions.length > 3) {
+        newSuggestions = newSuggestions.sublist(0, 3);
+      }
+      
+      // If no suggestions found for the typed text, show default messages
+      if (newSuggestions.isEmpty) {
+        newSuggestions = _defaultMessages;
+      }
+    }
+
+    setState(() {
+      _suggestions = newSuggestions;
+      _showSuggestions = true; // Always show suggestions (either matched or default)
+    });
   }
 
   void initSpeech() async {
@@ -47,11 +96,12 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _isListening = true;
         _lastWords = '';
+        _showSuggestions = false; // Hide suggestions while listening
       });
       await _speechToText.listen(
         onResult: _onSpeechResult,
-        listenFor: const Duration(minutes: 5), // Extended to 5 minutes
-        pauseFor: const Duration(seconds: 5),  // Increased pause time
+        listenFor: const Duration(minutes: 5),
+        pauseFor: const Duration(seconds: 5),
         partialResults: true,
         localeId: "en_US",
         cancelOnError: false,
@@ -67,7 +117,6 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isListening = false);
     await _speechToText.stop();
     
-    // Set the recognized text to the text field after stopping
     if (_lastWords.isNotEmpty) {
       setState(() {
         _messageController.text = _lastWords;
@@ -78,7 +127,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onSpeechResult(result) {
     setState(() {
       _lastWords = result.recognizedWords;
-      // Update the text field in real-time while listening
       if (_isListening) {
         _messageController.text = _lastWords;
       }
@@ -102,6 +150,13 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
+  }
+
+  void _selectSuggestion(String suggestion) {
+    setState(() {
+      _messageController.text = suggestion;
+      _showSuggestions = false;
+    });
   }
 
   @override
@@ -211,40 +266,48 @@ class _HomeScreenState extends State<HomeScreen> {
                 
                 const SizedBox(height: 40),
                 
-                // Quick Messages
-                _buildQuickMessage('I need some help'),
-                const SizedBox(height: 12),
-                _buildQuickMessage('Can you get me a chair ?'),
-                const SizedBox(height: 12),
-                _buildQuickMessage('Please call my caregiver'),
+                // Dynamic Quick Messages / Suggestions
+                if (_showSuggestions && !_isListening)
+                  Column(
+                    children: [
+                      for (int i = 0; i < _suggestions.length; i++) ...[
+                        _buildQuickMessage(_suggestions[i]),
+                        if (i < _suggestions.length - 1) const SizedBox(height: 12),
+                      ],
+                    ],
+                  ),
                 
                 const SizedBox(height: 30),
                 
-                // Text Input
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
-                    borderRadius: BorderRadius.circular(25),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _messageController,
-                          decoration: const InputDecoration(
-                            hintText: 'Type your message here...',
-                            border: InputBorder.none,
+                // Text Input with Suggestions
+                Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _messageController,
+                              decoration: const InputDecoration(
+                                hintText: 'Type your message here...',
+                                border: InputBorder.none,
+                              ),
+                              maxLines: null,
+                            ),
                           ),
-                          maxLines: null,
-                        ),
+                          IconButton(
+                            icon: const Icon(Icons.volume_up, color: Colors.black54),
+                            onPressed: _speak,
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.volume_up, color: Colors.black54),
-                        onPressed: _speak,
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
                 
                 const SizedBox(height: 20),
@@ -297,6 +360,7 @@ class _HomeScreenState extends State<HomeScreen> {
       onTap: () {
         setState(() {
           _messageController.text = message;
+          _showSuggestions = false; // Hide suggestions after selection
         });
 
         if (_messageController.text.trim().isNotEmpty) {
