@@ -1,13 +1,86 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:soundtotext/features/home/emergancy_screen.dart';
+import 'package:soundtotext/core/shared_widget/keyboard_dismisser_widget.dart';
 
-class MessageConfirmationScreen extends StatelessWidget {
+class MessageConfirmationScreen extends StatefulWidget {
   final String message;
 
   const MessageConfirmationScreen({
     super.key,
     required this.message,
   });
+
+  @override
+  State<MessageConfirmationScreen> createState() => _MessageConfirmationScreenState();
+}
+
+class _MessageConfirmationScreenState extends State<MessageConfirmationScreen> {
+  final FlutterTts _flutterTts = FlutterTts();
+  bool _isSpeaking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initTts();
+    // Automatically speak the selected text when screen loads
+    _speakSelectedText();
+  }
+
+  void _initTts() async {
+    await _flutterTts.setLanguage("en-US");
+    await _flutterTts.setSpeechRate(0.5);
+    await _flutterTts.setVolume(1.0);
+    await _flutterTts.setPitch(1.0);
+    
+    // Set up completion handler with mounted check
+    _flutterTts.setCompletionHandler(() {
+      if (mounted) {
+        setState(() {
+          _isSpeaking = false;
+        });
+      }
+    });
+  }
+
+  void _speakSelectedText() async {
+    if (widget.message.trim().isNotEmpty && mounted) {
+      try {
+        setState(() {
+          _isSpeaking = true;
+        });
+        await _flutterTts.speak(widget.message.trim());
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _isSpeaking = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Text-to-speech is not available'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _stopSpeaking() async {
+    await _flutterTts.stop();
+    if (mounted) {
+      setState(() {
+        _isSpeaking = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    // Stop TTS without accessing context
+    _flutterTts.stop();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,9 +106,10 @@ class MessageConfirmationScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
+      body: KeyboardDismisser(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
           children: [
             const SizedBox(height: 40),
             
@@ -51,13 +125,38 @@ class MessageConfirmationScreen extends StatelessWidget {
             
             // Selected Message
             Text(
-              message,
+              widget.message,
               style: const TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
                 color: Colors.black,
               ),
               textAlign: TextAlign.center,
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Audio controls
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  onPressed: _isSpeaking ? _stopSpeaking : _speakSelectedText,
+                  icon: Icon(
+                    _isSpeaking ? Icons.stop : Icons.volume_up,
+                    size: 32,
+                    color: _isSpeaking ? Colors.red : Colors.blue,
+                  ),
+                ),
+                if (_isSpeaking)
+                  const Text(
+                    'Speaking...',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.blue,
+                    ),
+                  ),
+              ],
             ),
             
             const SizedBox(height: 60),
@@ -71,7 +170,7 @@ class MessageConfirmationScreen extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => EmergencyScreen(message: message),
+                      builder: (context) => EmergencyScreen(message: widget.message),
                     ),
                   );
                 },
@@ -148,11 +247,12 @@ class MessageConfirmationScreen extends StatelessWidget {
           ],
         ),
       ),
+      ),
     );
   }
 
   void _showEditDialog(BuildContext context) {
-    final TextEditingController controller = TextEditingController(text: message);
+    final TextEditingController controller = TextEditingController(text: widget.message);
     
     showDialog(
       context: context,

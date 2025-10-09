@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:soundtotext/features/auth/service/auth_service.dart';
 import 'package:soundtotext/features/home/helper/suggest_words_helper.dart';
-import 'package:soundtotext/features/home/listen_screen.dart';
 import 'package:soundtotext/features/home/message_confirmation_screen.dart';
+import 'package:soundtotext/core/service/guest_mode_service.dart';
+import 'package:soundtotext/core/shared_widget/keyboard_dismisser_widget.dart';
 import 'package:speech_to_text/speech_to_text.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -25,12 +23,15 @@ class _HomeScreenState extends State<HomeScreen> {
   final FlutterTts _flutterTts = FlutterTts();
   List<String> _suggestions = [];
   bool _showSuggestions = false;
+  bool _isLoadingSuggestions = false;
+  bool _isGuestMode = false;
+  int _guestMessageCount = 0;
   
   // Default quick messages
   final List<String> _defaultMessages = [
-    'I need some help',
-    'Can you get me a chair?',
-    'Please call my caregiver',
+    'I need help from my nurse',
+    'Please call the doctor',
+    'I require medical assistance',
   ];
 
   @override
@@ -39,43 +40,45 @@ class _HomeScreenState extends State<HomeScreen> {
     initSpeech();
     _initTts();
     _messageController.addListener(_onTextChanged);
+    _checkGuestMode();
     
     // Initialize with default messages
     _suggestions = _defaultMessages;
     _showSuggestions = true;
   }
 
-  void _onTextChanged() {
+  void _checkGuestMode() async {
+    final isGuest = await GuestModeService.isGuestMode();
+    final guestInfo = await GuestModeService.getGuestInfo();
+    
+    setState(() {
+      _isGuestMode = isGuest;
+      _guestMessageCount = guestInfo['messageCount'] ?? 0;
+    });
+  }
+
+  void _onTextChanged() async {
     final text = _messageController.text.toLowerCase().trim();
+    
+    setState(() {
+      _isLoadingSuggestions = true;
+    });
     
     List<String> newSuggestions = [];
     
-    if (text.isEmpty) {
-      // Show default messages when text field is empty
+    try {
+      // Use the enhanced suggestion service with AI
+      newSuggestions = await SuggestionService.getSuggestions(text);
+    } catch (e) {
+      print('Error getting suggestions: $e');
+      // Fallback to default messages
       newSuggestions = _defaultMessages;
-    } else {
-      // Find suggestions based on the text input
-      for (String key in suggestionMap.keys) {
-        if (key.startsWith(text) || text.contains(key)) {
-          newSuggestions.addAll(suggestionMap[key]!);
-        }
-      }
-      
-      // Remove duplicates and limit to 3 suggestions
-      newSuggestions = newSuggestions.toSet().toList();
-      if (newSuggestions.length > 3) {
-        newSuggestions = newSuggestions.sublist(0, 3);
-      }
-      
-      // If no suggestions found for the typed text, show default messages
-      if (newSuggestions.isEmpty) {
-        newSuggestions = _defaultMessages;
-      }
     }
 
     setState(() {
       _suggestions = newSuggestions;
-      _showSuggestions = true; // Always show suggestions (either matched or default)
+      _showSuggestions = true;
+      _isLoadingSuggestions = false;
     });
   }
 
@@ -135,17 +138,42 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _speak() async {
     if (_messageController.text.trim().isNotEmpty) {
-      await _flutterTts.speak(_messageController.text.trim());
+      try {
+        await _flutterTts.stop(); // Stop any ongoing speech
+        await _flutterTts.speak(_messageController.text.trim());
+      } catch (e) {
+        print('Text-to-speech error: $e');
+        // Show a snackbar if speech fails - only if widget is still mounted
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Text-to-speech is not available'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
     }
   }
 
-  void _sendMessage() {
+  void _sendMessage() async {
     if (_messageController.text.trim().isNotEmpty) {
+      final message = _messageController.text.trim();
+      
+      // Save message if in guest mode
+      if (_isGuestMode) {
+        await GuestModeService.saveGuestMessage(message);
+        // Update guest message count
+        setState(() {
+          _guestMessageCount++;
+        });
+      }
+      
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => MessageConfirmationScreen(
-            message: _messageController.text.trim(),
+            message: message,
           ),
         ),
       );
@@ -157,6 +185,42 @@ class _HomeScreenState extends State<HomeScreen> {
       _messageController.text = suggestion;
       _showSuggestions = false;
     });
+  }
+
+  void _showGuestOptionsDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Guest Mode'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Messages sent: $_guestMessageCount'),
+              const SizedBox(height: 8),
+              const Text('To save your messages and access all features, consider creating an account.'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('Stay as Guest'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await GuestModeService.clearGuestData();
+                Navigator.pushReplacementNamed(context, '/login');
+              },
+              child: const Text('Sign Up'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -183,22 +247,43 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         actions: [
+          if (_isGuestMode)
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              child: Center(
+                child: Text(
+                  'Guest',
+                  style: TextStyle(
+                    color: Colors.orange,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
           IconButton(
-            icon: const Icon(Icons.logout),
+            icon: Icon(_isGuestMode ? Icons.login : Icons.logout),
             onPressed: () async {
-              await AuthService.signOut();
-              Navigator.pushReplacementNamed(context, '/login');
+              if (_isGuestMode) {
+                // For guest mode, show dialog to sign up or clear session
+                _showGuestOptionsDialog();
+              } else {
+                // Regular logout
+                await AuthService.signOut();
+                Navigator.pushReplacementNamed(context, '/login');
+              }
             },
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: SingleChildScrollView(
-          child: SizedBox(
-            height: MediaQuery.of(context).size.height,
-            child: Column(
-              children: [
+      body: KeyboardDismisser(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: SingleChildScrollView(
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height,
+              child: Column(
+                children: [
                 const SizedBox(height: 40),
               
                 Text(
@@ -267,7 +352,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 40),
                 
                 // Dynamic Quick Messages / Suggestions
-                if (_showSuggestions && !_isListening)
+                if (_isLoadingSuggestions)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(20.0),
+                      child: CircularProgressIndicator(),
+                    ),
+                  )
+                else if (_showSuggestions && !_isListening)
                   Column(
                     children: [
                       for (int i = 0; i < _suggestions.length; i++) ...[
@@ -337,7 +429,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 
                 const SizedBox(height: 20),
                 
-                const Text(
+                _isGuestMode ? const Text(
+                  'Messages are temporarily stored in guest mode. Sign up to save permanently.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.orange,
+                  ),
+                  textAlign: TextAlign.center,
+                ) : const Text(
                   'Messages won\'t be saved unless you\'re logged in.',
                   style: TextStyle(
                     fontSize: 12,
@@ -348,6 +447,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 
                 const Spacer(flex: 1),
               ],
+            ),
             ),
           ),
         ),
@@ -395,7 +495,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _messageController.dispose();
+    // Stop TTS without accessing context
     _flutterTts.stop();
+    // Clear any pending suggestions
+    SuggestionService.clearDebounce();
     super.dispose();
   }
 }

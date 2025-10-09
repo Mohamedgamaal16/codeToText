@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:soundtotext/core/service/guest_mode_service.dart';
 
 class AuthService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -10,6 +11,8 @@ class AuthService {
         email: email.trim(),
         password: password.trim(),
       );
+      // Disable guest mode on successful sign up
+      await GuestModeService.disableGuestMode();
       return null; // Success
     } on FirebaseAuthException catch (e) {
       switch (e.code) {
@@ -34,6 +37,8 @@ class AuthService {
         email: email.trim(),
         password: password.trim(),
       );
+      // Disable guest mode on successful sign in
+      await GuestModeService.disableGuestMode();
       return null; // Success
     } on FirebaseAuthException catch (e) {
       switch (e.code) {

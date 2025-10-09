@@ -4,6 +4,7 @@ import 'package:soundtotext/core/service/validations.dart';
 import 'package:soundtotext/core/shared_widget/custom_button.dart';
 import 'package:soundtotext/core/shared_widget/custom_text_field.dart';
 import 'package:soundtotext/features/auth/service/auth_service.dart';
+import 'package:soundtotext/core/service/guest_mode_service.dart';
 
 class NeuroTalkLoginScreen extends StatefulWidget {
   const NeuroTalkLoginScreen({super.key});
@@ -40,8 +41,11 @@ class _NeuroTalkLoginScreenState extends State<NeuroTalkLoginScreen> {
     }
   }
 
-  void _continueAsGuest() {
-    Navigator.pushReplacementNamed(context, '/home');
+  void _continueAsGuest() async {
+    await GuestModeService.enableGuestMode();
+    if (mounted) {
+      Navigator.pushReplacementNamed(context, '/home');
+    }
   }
 
   @override
@@ -137,17 +141,17 @@ class _NeuroTalkLoginScreenState extends State<NeuroTalkLoginScreen> {
                     const Spacer(flex: 1),
                     
                     // Continue as guest
-                    // GestureDetector(
-                    //   onTap: _continueAsGuest,
-                    //   child: const Text(
-                    //     'Continue as guest',
-                    //     style: TextStyle(
-                    //       fontSize: 16,
-                    //       color: Colors.grey,
-                    //       decoration: TextDecoration.underline,
-                    //     ),
-                    //   ),
-                    // ),
+                    GestureDetector(
+                      onTap: _continueAsGuest,
+                      child: const Text(
+                        'Continue as guest',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
                     
                     const SizedBox(height: 20),
                     
